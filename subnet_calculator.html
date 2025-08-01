@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Subnet Calculator</title>
+    <style>
+        :root {
+            --bg-light: #f5f5f5;
+            --bg-dark: #1e1e1e;
+            --card-light: #ffffff;
+            --card-dark: #2c2c2c;
+            --text-light: #000000;
+            --text-dark: #f5f5f5;
+            --button-light: #007BFF;
+            --button-dark: #4dabf7;
+        }
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: var(--bg-light);
+            color: var(--text-light);
+            transition: background 0.3s, color 0.3s;
+        }
+        body.dark-mode {
+            background: var(--bg-dark);
+            color: var(--text-dark);
+        }
+        .container {
+            background: var(--card-light);
+            max-width: 500px;
+            width: 90%;
+            margin: 50px auto;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0px 5px 15px rgba(0,0,0,0.2);
+            transition: background 0.3s;
+            text-align: center;
+        }
+        body.dark-mode .container {
+            background: var(--card-dark);
+        }
+        h2 {
+            margin-bottom: 10px;
+        }
+        input, button {
+            padding: 10px;
+            margin: 5px;
+            width: 85%;
+            font-size: 16px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+            outline: none;
+        }
+        button {
+            background: var(--button-light);
+            color: white;
+            border: none;
+            cursor: pointer;
+            width: 90%;
+        }
+        body.dark-mode button {
+            background: var(--button-dark);
+        }
+        button:hover {
+            opacity: 0.9;
+        }
+        pre {
+            text-align: left;
+            background: #eee;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 14px;
+            white-space: pre-wrap;
+            overflow-x: auto;
+            min-height: 80px;
+        }
+        body.dark-mode pre {
+            background: #444;
+            color: #f5f5f5;
+        }
+        .theme-toggle {
+            cursor: pointer;
+            font-size: 14px;
+            margin-bottom: 10px;
+            display: inline-block;
+            padding: 5px 10px;
+            background: #ccc;
+            border-radius: 5px;
+        }
+        body.dark-mode .theme-toggle {
+            background: #555;
+            color: #f5f5f5;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="theme-toggle" onclick="toggleTheme()">🌙 Dark/Light</div>
+        <h2>Subnet Calculator</h2>
+        <input type="text" id="ip" placeholder="Enter IP (e.g. 192.168.1.10)">
+        <input type="text" id="mask" placeholder="Enter Subnet Mask or CIDR (e.g. 255.255.255.0 or 24)">
+        <button onclick="calculate()">Calculate</button>
+        <pre id="result"></pre>
+    </div>
+
+    <script>
+        function toggleTheme() {
+            document.body.classList.toggle("dark-mode");
+        }
+
+        function toBinary(ip) {
+            return ip.split('.').map(octet => ('00000000' + parseInt(octet).toString(2)).slice(-8)).join('.');
+        }
+
+        function wildcardMask(mask) {
+            return mask.split('.').map(x => 255 - parseInt(x)).join('.');
+        }
+
+        function ipClass(ip) {
+            const firstOctet = parseInt(ip.split('.')[0]);
+            if (firstOctet >= 1 && firstOctet <= 126) return "A";
+            if (firstOctet >= 128 && firstOctet <= 191) return "B";
+            if (firstOctet >= 192 && firstOctet <= 223) return "C";
+            if (firstOctet >= 224 && firstOctet <= 239) return "D (Multicast)";
+            if (firstOctet >= 240 && firstOctet <= 255) return "E (Experimental)";
+            return "Unknown";
+        }
+
+        function calculate() {
+            const ip = document.getElementById("ip").value.trim();
+            let mask = document.getElementById("mask").value.trim();
+            const result = document.getElementById("result");
+
+            if (!ip) {
+                result.textContent = "❌ Please enter a valid IP address.";
+                return;
+            }
+
+            try {
+                // If user entered only CIDR (number), convert to mask
+                if (/^\d+$/.test(mask)) {
+                    const prefix = parseInt(mask);
+                    if (prefix < 0 || prefix > 32) throw "Invalid CIDR.";
+                    let bits = "1".repeat(prefix).padEnd(32, "0");
+                    mask = bits.match(/.{8}/g).map(b => parseInt(b, 2)).join('.');
+                }
+
+                const ipParts = ip.split('.').map(Number);
+                const maskParts = mask.split('.').map(Number);
+
+                if (ipParts.length !== 4 || maskParts.length !== 4) throw "Invalid IP or mask.";
+                
+                // Network Address
+                const networkParts = ipParts.map((p, i) => p & maskParts[i]);
+                const networkAddress = networkParts.join('.');
+
+                // Broadcast Address
+                const broadcastParts = networkParts.map((p, i) => p | (~maskParts[i] & 255));
+                const broadcastAddress = broadcastParts.join('.');
+
+                // Total Hosts
+                const hostBits = 32 - maskParts.reduce((a, p) => a + p.toString(2).replace(/0/g,'').length, 0);
+                const totalHosts = hostBits > 1 ? Math.pow(2, hostBits) - 2 : (hostBits === 0 ? 1 : 0);
+
+                // First & Last Host
+                const firstHostParts = [...networkParts];
+                const lastHostParts = [...broadcastParts];
+                if (totalHosts > 0) {
+                    firstHostParts[3] += 1;
+                    lastHostParts[3] -= 1;
+                }
+                const firstHost = totalHosts > 0 ? firstHostParts.join('.') : "N/A";
+                const lastHost = totalHosts > 0 ? lastHostParts.join('.') : "N/A";
+
+                const wildcard = wildcardMask(mask);
+
+                result.textContent = `
+Network Address: ${networkAddress} (${toBinary(networkAddress)})
+Broadcast Address: ${broadcastAddress} (${toBinary(broadcastAddress)})
+Subnet Mask: ${mask} (${toBinary(mask)})
+IP Class: ${ipClass(ip)}
+Total Hosts: ${totalHosts}
+First Host: ${firstHost} (${totalHosts > 0 ? toBinary(firstHost) : "N/A"})
+Last Host: ${lastHost} (${totalHosts > 0 ? toBinary(lastHost) : "N/A"})
+Wildcard Mask: ${wildcard} (${toBinary(wildcard)})
+                `;
+            } catch (e) {
+                result.textContent = "❌ Error: " + e;
+            }
+        }
+    </script>
+</body>
+</html>
